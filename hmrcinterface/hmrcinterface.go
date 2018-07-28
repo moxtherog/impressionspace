@@ -31,8 +31,8 @@ func Authenticate(Scope string) (authToken string) {
 	return string(bodyString)
 }
 
-// Post the deserialised VATReturn object to the configured service
-func (v *VATReturn) Post(authToken string) *http.Response {
+// Submit the deserialised VATReturn object to the configured service
+func (v *VATReturn) Submit(authToken string) *http.Response {
 
 	// grab the config to get the service URI
 	config := marshalConfig()

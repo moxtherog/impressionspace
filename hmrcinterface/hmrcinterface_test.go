@@ -6,6 +6,10 @@ import (
 )
 
 func TestVATReturn(T *testing.T) {
+	// Get an auth token
+	authToken := Authenticate("write:vat")
+
+	// build a VATReturn object
 	v := &VATReturn{
 		Vrn:                          123456789,
 		PeriodKey:                    "#001",
@@ -21,9 +25,9 @@ func TestVATReturn(T *testing.T) {
 		Finalised:                    true,
 	}
 
-	authToken := Authenticate("write:vat")
+	// Submit the VAT return
+	r := v.Submit(authToken)
 
-	r := v.Post(authToken)
-
+	// Print the response
 	fmt.Println(r)
 }
