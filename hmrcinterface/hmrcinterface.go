@@ -1,4 +1,4 @@
-package main
+package hmrcinterface
 
 import (
 	"bytes"
@@ -7,65 +7,68 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 )
 
-func main() {
-	var v VATRequest
-	PostVATRequest(v)
+// Authenticate takes a usename and pasword and returns an authentication token to use when submitting the returns
+// Scope required for VAT retuens is "write:vat"
+func Authenticate(Scope string) (authToken string) {
+	config := marshalConfig()
+
+	// Build an auth endpoint string
+	authEndpoint := "https://test-api.service.hmrc.gov.uk/oauth/authorize?response_type=code&" +
+		"client_id=" + config.ClientID +
+		"&scope=" + Scope +
+		"&redirect_uri=\"\""
+
+	// Hit the service, using the auth endpoint
+	resp, _ := http.Get(authEndpoint)
+
+	// convert the body to a string
+	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+	bodyString := string(bodyBytes)
+
+	return string(bodyString)
 }
 
-// PostVATRequest takes a VATRequests object, generates a VAT request xml document and posts it to the configured service
-func PostVATRequest(v VATRequest) {
+// Post the deserialised VATReturn object to the configured service
+func (v *VATReturn) Post(authToken string) *http.Response {
 
 	// grab the config to get the service URI
-	c := marshalConfig()
+	config := marshalConfig()
 
-	// make a request object
-	vatRequest := makeVATRequestXML(v)
+	// build an enpoint, using the vrn
+	vatReturnsEndpoint := config.ServiceURI + "/organisations/vat/" + strconv.Itoa(v.Vrn) + "/returns"
 
-	// hit the service #TODO error handling!
-	resp, _ := http.Post(c.ServiceURI, "application/xml", bytes.NewBuffer(vatRequest))
+	// convert the VATReturn object into a JSON string
+	vatReturnsString, _ := json.Marshal(v)
 
-	// print the response
-	fmt.Println(resp)
+	// build the request and hit the service
+	client := &http.Client{}
+	req, _ := http.NewRequest("POST", vatReturnsEndpoint, bytes.NewBuffer(vatReturnsString))
+	req.Header.Set("Accept", "application/vnd.hmrc.1.0+json")
+	req.Header.Set("Content-Type", "application/jsonn")
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	resp, _ := client.Do(req)
+
+	// return the response
+	return resp
 }
 
-// converts a VAT request object into an XML doc, using templates/vat-request-template.xml
-func makeVATRequestXML(VATRequest) []byte {
-
-	// Marshal the template into a byte array
-	vatRequest, err := ioutil.ReadFile("templates/vat-request-template.xml")
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
-	}
-
-	// #TODO do stuff to it based on the VATReqest object
-
-	return vatRequest
-}
-
-// VATRequest object holds the attributes required for generating a vat request xml doc
-type VATRequest struct {
-	SenderID               string  // xpath: /GovTalkMessage/Header/SenderDetails/IDAuthentication/SenderID
-	AuthenticationValue    string  // xpath: /GovTalkMessage/Header/SenderDetails/IDAuthentication/Authentication/Value
-	VATRegNo               int     // xpath: /GovTalkMessage/GovTalkDetails/Keys/Key /IRheader/Keys/Key #TODO need to put this in twice...
-	ChannelURI             string  // xpath: /GovTalkMessage/GovTalkDetails/ChannelRouting/Channel/URI
-	ChannelProduct         string  // xpath: /GovTalkMessage/GovTalkDetails/ChannelRouting/Channel/Product
-	CahnnelVersion         string  // xpath: /GovTalkMessage/GovTalkDetails/ChannelRouting/Channel/Version
-	PeriodID               string  // xpath: /IRheader/PeriodID
-	IRMark                 string  // xpath: /IRheader/IRmark
-	Sender                 string  // xpath: /IRheader/Sender
-	VATDueOnOutputs        float32 // xpath: /VATDeclarationRequest/VATDueOnOutputs
-	VATDueOnECAcquisitions float32 // xpath: /VATDeclarationRequest/VATDueOnECAcquisitions
-	TotalVAT               float32 // xpath: /VATDeclarationRequest/TotalVAT
-	VATReclaimedOnInputs   float32 // xpath: /VATDeclarationRequest/VATReclaimedOnInputs
-	NetVAT                 float32 // xpath: /VATDeclarationRequest/NetVAT
-	NetSalesAndOutputs     int     // xpath: /VATDeclarationRequest/NetSalesAndOutputs
-	NetPurchasesAndInputs  int     // xpath: /VATDeclarationRequest/NetPurchasesAndInputs
-	NetECSupplies          int     // xpath: /VATDeclarationRequest/NetECSupplies
-	NetECAcquisitions      int     // xpath: /VATDeclarationRequest/NetECAcquisitions
-	AASBalancingPayment    float32 // xpath: /VATDeclarationRequest/AASBalancingPayment
+// VATReturn object deserialises to the expected JSON object for "/organisations/vat/{vrn}/returns"
+type VATReturn struct {
+	Vrn                          int
+	PeriodKey                    string  `json:"ServiceURI"`
+	VatDueSales                  float32 `json:"vatDueSales"`
+	VatDueAcquisitions           float32 `json:"totalVatDue"`
+	TotalVatDue                  float32 `json:"vatDueAcquisitions"`
+	VatReclaimedCurrPeriod       float32 `json:"vatReclaimedCurrPeriod"`
+	NetVatDue                    float32 `json:"netVatDue"`
+	TotalValueSalesExVAT         float32 `json:"totalValueSalesExVAT"`
+	TotalValuePurchasesExVAT     float32 `json:"totalValuePurchasesExVAT"`
+	TotalValueGoodsSuppliedExVAT float32 `json:"totalValueGoodsSuppliedExVAT"`
+	TotalAcquisitionsExVAT       float32 `json:"totalAcquisitionsExVAT"`
+	Finalised                    bool    `json:"finalised"`
 }
 
 // Marshals the config out of the json file into a config object
@@ -90,4 +93,5 @@ func marshalConfig() config {
 // struct representing the config in RAM
 type config struct {
 	ServiceURI string `json:"ServiceURI"`
+	ClientID   string `json:"ClientID"`
 }
